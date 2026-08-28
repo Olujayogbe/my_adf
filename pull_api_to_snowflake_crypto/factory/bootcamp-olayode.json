@@ -1,0 +1,15 @@
+{
+	"name": "bootcamp-olayode",
+	"properties": {
+		"trustModeClaimForMi": {
+			"value": "Disabled",
+			"editable": true
+		}
+	},
+	"location": "eastus",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "6e03a01b-b118-413c-a5dc-fec93375f98e",
+		"tenantId": "ed637cb6-8f8e-4025-8f68-4c7058e9f1f0"
+	}
+}
