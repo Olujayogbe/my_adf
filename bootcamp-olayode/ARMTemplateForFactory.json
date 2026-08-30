@@ -1,0 +1,680 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory name",
+			"defaultValue": "bootcamp-olayode"
+		},
+		"Projectazureblobstorage_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'Projectazureblobstorage'"
+		},
+		"crypto_Snowflake_password": {
+			"type": "secureString",
+			"metadata": "Secure string for 'password' of 'crypto_Snowflake'"
+		},
+		"projectsnowflake_password": {
+			"type": "secureString",
+			"metadata": "Secure string for 'password' of 'projectsnowflake'"
+		},
+		"Projectrestservice_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://wttr.in"
+		},
+		"crypto_Snowflake_properties_typeProperties_database": {
+			"type": "string",
+			"defaultValue": "olayode_ingestion"
+		},
+		"crypto_api_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://api.coingecko.com"
+		},
+		"projectsnowflake_properties_typeProperties_database": {
+			"type": "string",
+			"defaultValue": "olayode_general_db"
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "[concat(parameters('factoryName'), '/pl_weather_ingestion')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "GetCapitalCities",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "SnowflakeV2Source",
+								"query": "SELECT CAPITAL_CITY FROM RAW.CAPITAL_CITIES",
+								"exportSettings": {
+									"type": "SnowflakeExportCopyCommand"
+								},
+								"treatDecimalAsString": false
+							},
+							"dataset": {
+								"referenceName": "projectsnowflakeTable_cities",
+								"type": "DatasetReference",
+								"parameters": {}
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "truncateweathertable",
+						"type": "Script",
+						"dependsOn": [
+							{
+								"activity": "GetCapitalCities",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"linkedServiceName": {
+							"referenceName": "projectsnowflake",
+							"type": "LinkedServiceReference"
+						},
+						"typeProperties": {
+							"scripts": [
+								{
+									"type": "NonQuery",
+									"text": "TRUNCATE TABLE RAW.WEATHER"
+								}
+							],
+							"scriptBlockExecutionTimeout": "02:00:00",
+							"treatDecimalAsString": false
+						}
+					},
+					{
+						"name": "foreach",
+						"type": "ForEach",
+						"dependsOn": [
+							{
+								"activity": "truncateweathertable",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('GetCapitalCities').output.value",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "GetWeatherJSON",
+									"type": "WebActivity",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"method": "GET",
+										"headers": {},
+										"url": {
+											"value": "@concat('https://wttr.in/', replace(item().CAPITAL_CITY, ' ', '+'), '?format=j1')",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "InsertToSnowflake",
+									"type": "Script",
+									"dependsOn": [
+										{
+											"activity": "GetWeatherJSON",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"linkedServiceName": {
+										"referenceName": "projectsnowflake",
+										"type": "LinkedServiceReference"
+									},
+									"typeProperties": {
+										"scripts": [
+											{
+												"parameters": [
+													{
+														"name": "current_condition",
+														"type": "String",
+														"value": {
+															"value": "@string(activity('GetWeatherJSON').output.current_condition)",
+															"type": "Expression"
+														},
+														"direction": "Input"
+													},
+													{
+														"name": "nearest_area",
+														"type": "String",
+														"value": {
+															"value": "@string(activity('GetWeatherJSON').output.nearest_area)",
+															"type": "Expression"
+														},
+														"direction": "Input"
+													},
+													{
+														"name": "output.request",
+														"type": "String",
+														"value": {
+															"value": "@string(activity('GetWeatherJSON').output.request)",
+															"type": "Expression"
+														},
+														"direction": "Input"
+													},
+													{
+														"name": "output.weather",
+														"type": "String",
+														"value": {
+															"value": "@string(activity('GetWeatherJSON').output.weather)",
+															"type": "Expression"
+														},
+														"direction": "Input"
+													}
+												],
+												"type": "Query",
+												"text": "INSERT INTO RAW.WEATHER (current_condition, nearest_area, request, weather) SELECT PARSE_JSON(?), PARSE_JSON(?), PARSE_JSON(?), PARSE_JSON(?);"
+											}
+										],
+										"scriptBlockExecutionTimeout": "02:00:00",
+										"treatDecimalAsString": false
+									}
+								},
+								{
+									"name": "ArchiveToBlob",
+									"type": "Copy",
+									"dependsOn": [
+										{
+											"activity": "InsertToSnowflake",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "RestSource",
+											"httpRequestTimeout": "00:01:40",
+											"requestInterval": "00.00:00:00.010",
+											"requestMethod": "GET",
+											"paginationRules": {
+												"supportRFC5988": "true"
+											}
+										},
+										"sink": {
+											"type": "JsonSink",
+											"storeSettings": {
+												"type": "AzureBlobStorageWriteSettings"
+											},
+											"formatSettings": {
+												"type": "JsonWriteSettings"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "projectrestservice",
+											"type": "DatasetReference",
+											"parameters": {
+												"city": "@replace(item().CAPITAL_CITY, ' ', '+')"
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "projectJson",
+											"type": "DatasetReference",
+											"parameters": {
+												"fileName": {
+													"value": "@concat(item().CAPITAL_CITY, '/', formatDateTime(utcNow(), 'yyyy-MM-dd HH:mm:ss'), '.json')",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								}
+							]
+						}
+					},
+					{
+						"name": "CallTransformProcedure",
+						"type": "Script",
+						"dependsOn": [
+							{
+								"activity": "foreach",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"linkedServiceName": {
+							"referenceName": "projectsnowflake",
+							"type": "LinkedServiceReference"
+						},
+						"typeProperties": {
+							"scripts": [
+								{
+									"type": "Query",
+									"text": "CALL RAW.TRANSFORM_WEATHER()"
+								}
+							],
+							"scriptBlockExecutionTimeout": "02:00:00",
+							"treatDecimalAsString": false
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"annotations": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/projectsnowflakeTable_cities')]",
+				"[concat(variables('factoryId'), '/linkedServices/projectsnowflake')]",
+				"[concat(variables('factoryId'), '/datasets/projectrestservice')]",
+				"[concat(variables('factoryId'), '/datasets/projectJson')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/pull_api_to_snowflake')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "pull_from_api",
+						"type": "WebActivity",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "GET",
+							"headers": {},
+							"url": "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd"
+						}
+					},
+					{
+						"name": "dump in snowflake",
+						"type": "Script",
+						"dependsOn": [
+							{
+								"activity": "pull_from_api",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"linkedServiceName": {
+							"referenceName": "crypto_Snowflake",
+							"type": "LinkedServiceReference"
+						},
+						"typeProperties": {
+							"scripts": [
+								{
+									"type": "Query",
+									"text": {
+										"value": "INSERT INTO bronze.CRYPTO_INGEST SELECT '@{pipeline().RunId}', CURRENT_TIMESTAMP(),\n'@{string(activity('pull_from_api').output)}'",
+										"type": "Expression"
+									}
+								}
+							],
+							"scriptBlockExecutionTimeout": "02:00:00",
+							"treatDecimalAsString": false
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"annotations": [],
+				"lastPublishTime": "2026-08-27T01:45:23Z"
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/crypto_Snowflake')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/crypto_Table')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "crypto_Snowflake",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "SnowflakeV2Table",
+				"schema": [],
+				"typeProperties": {
+					"schema": "BRONZE",
+					"table": "CRYPTO_INGEST"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/crypto_Snowflake')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/crypto_api')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "crypto_api",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "RestResource",
+				"typeProperties": {
+					"relativeUrl": "/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd"
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/crypto_api')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/projectJson')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "Projectazureblobstorage",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"fileName": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobStorageLocation",
+						"fileName": {
+							"value": "@dataset().fileName",
+							"type": "Expression"
+						},
+						"folderPath": "raw_weather",
+						"container": "project1"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/Projectazureblobstorage')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/projectrestservice')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "Projectrestservice",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"city": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "RestResource",
+				"typeProperties": {
+					"relativeUrl": {
+						"value": "@concat(dataset().city, '?format=j1')",
+						"type": "Expression"
+					}
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/Projectrestservice')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/projectsnowflakeTable_cities')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "projectsnowflake",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "SnowflakeV2Table",
+				"schema": [],
+				"typeProperties": {
+					"schema": "RAW",
+					"table": "CAPITAL_CITIES"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/projectsnowflake')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/projectsnowflakeTable_weather')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "projectsnowflake",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "SnowflakeV2Table",
+				"schema": [],
+				"typeProperties": {
+					"schema": "RAW",
+					"table": "WEATHER"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/projectsnowflake')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Projectazureblobstorage')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureBlobStorage",
+				"typeProperties": {
+					"connectionString": "[parameters('Projectazureblobstorage_connectionString')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Projectrestservice')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "RestService",
+				"typeProperties": {
+					"url": "[parameters('Projectrestservice_properties_typeProperties_url')]",
+					"enableServerCertificateValidation": true,
+					"authenticationType": "Anonymous"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/crypto_Snowflake')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "SnowflakeV2",
+				"typeProperties": {
+					"authenticationType": "Basic",
+					"accountIdentifier": "QGLVYAA-MY45559",
+					"user": "olayode",
+					"database": "[parameters('crypto_Snowflake_properties_typeProperties_database')]",
+					"warehouse": "compute_wh",
+					"password": {
+						"type": "SecureString",
+						"value": "[parameters('crypto_Snowflake_password')]"
+					},
+					"useUtcTimestamps": false
+				},
+				"version": "1.1"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/crypto_api')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "RestService",
+				"typeProperties": {
+					"url": "[parameters('crypto_api_properties_typeProperties_url')]",
+					"enableServerCertificateValidation": true,
+					"authenticationType": "Anonymous"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/projectsnowflake')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "SnowflakeV2",
+				"typeProperties": {
+					"authenticationType": "Basic",
+					"accountIdentifier": "QGLVYAA-MY45559",
+					"user": "olayode",
+					"database": "[parameters('projectsnowflake_properties_typeProperties_database')]",
+					"warehouse": "compute_wh",
+					"password": {
+						"type": "SecureString",
+						"value": "[parameters('projectsnowflake_password')]"
+					},
+					"useUtcTimestamps": false
+				},
+				"version": "1.1"
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/3_hours_trigger')]",
+			"type": "Microsoft.DataFactory/factories/triggers",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"runtimeState": "Started",
+				"pipelines": [
+					{
+						"pipelineReference": {
+							"referenceName": "pull_api_to_snowflake",
+							"type": "PipelineReference"
+						},
+						"parameters": {}
+					},
+					{
+						"pipelineReference": {
+							"referenceName": "pl_weather_ingestion",
+							"type": "PipelineReference"
+						},
+						"parameters": {}
+					}
+				],
+				"type": "ScheduleTrigger",
+				"typeProperties": {
+					"recurrence": {
+						"frequency": "Hour",
+						"interval": 3,
+						"startTime": "2026-08-27T01:36:00",
+						"endTime": "2026-08-30T01:36:00",
+						"timeZone": "Atlantic Standard Time"
+					}
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/pipelines/pull_api_to_snowflake')]",
+				"[concat(variables('factoryId'), '/pipelines/pl_weather_ingestion')]"
+			]
+		}
+	]
+}

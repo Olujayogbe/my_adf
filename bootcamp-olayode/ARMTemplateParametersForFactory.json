@@ -1,0 +1,30 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"value": "bootcamp-olayode"
+		},
+		"Projectazureblobstorage_connectionString": {
+			"value": ""
+		},
+		"crypto_Snowflake_password": {
+			"value": ""
+		},
+		"projectsnowflake_password": {
+			"value": ""
+		},
+		"Projectrestservice_properties_typeProperties_url": {
+			"value": "https://wttr.in"
+		},
+		"crypto_Snowflake_properties_typeProperties_database": {
+			"value": "olayode_ingestion"
+		},
+		"crypto_api_properties_typeProperties_url": {
+			"value": "https://api.coingecko.com"
+		},
+		"projectsnowflake_properties_typeProperties_database": {
+			"value": "olayode_general_db"
+		}
+	}
+}
